@@ -2807,118 +2807,120 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
   	long copied = strncpy_from_user(buf, msg, sizeof(buf));
   	if (copied < 0 || copied == sizeof(buf))
     	return -EFAULT;
+	
 	printk(KERN_INFO "mmcontext syscall called with \"%s\"\n", buf);
 	
 	
     // mm_segment_t old_fs;
 
-
-    // Retrieve the process's task_struct
-    task = find_task_by_vpid(pid);
-    if (!task) {
-        printk(KERN_ERR "Process with pid %d not found\n", pid);
-        return -ESRCH;
-    }
-
-    // Get the process's mm_struct
-    mm = get_task_mm(task);
-    if (!mm) {
-        printk(KERN_ERR "Process with pid %d has no mm_struct\n", pid);
-        return -EINVAL;
-    }
-
-    file = filp_open(filename, O_CREAT | O_WRONLY, 0644);
-    if (IS_ERR(file)) {
-        printk(KERN_ERR "Could not open file %s\n", filename);
-        return PTR_ERR(file);
-    }
-
-    // Iterate over the process's VMAs and serialize the data
-    down_read(&mm->mmap_lock);
-	buffer = kmalloc(1024, GFP_KERNEL);
-	file2 = filp_open("aSaved.txt", O_WRONLY|O_APPEND|O_CREAT, 0644);
-	printk(KERN_INFO "mmap lock obtained");
-    for (vma = mm->mmap; vma; vma = vma->vm_next) {
-        // TODO: Extract VMA data and serialize it
-		unsigned long start = vma->vm_start;
-        unsigned long end = vma->vm_end;
-        unsigned long size = end - start;
-        unsigned long flags = vma->vm_flags;
-		char *buf;
-    	int bufsize;
-		loff_t pos = 0;
-		ssize_t ret;
-        // Serialize VMA information to buffer
-        memcpy(buffer + count, &start, sizeof(start));
-        count += sizeof(start);
-        memcpy(buffer + count, &end, sizeof(end));
-        count += sizeof(end);
-        memcpy(buffer + count, &size, sizeof(size));
-        count += sizeof(size);
-        memcpy(buffer + count, &flags, sizeof(flags));
-        count += sizeof(flags);
-
-		
-			
-
-		// calculate the buffer size required for serialization
-		bufsize = snprintf(NULL, 0, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
-							vma->vm_start, vma->vm_end, vma->vm_flags);
-
-		// allocate memory for the buffer
-		buf = kmalloc(bufsize + 1, GFP_KERNEL);
-		if (!buf)
-			return -ENOMEM;
-
-		// serialize the VMA data into the buffer
-		snprintf(buf, bufsize + 1, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
-				vma->vm_start, vma->vm_end, vma->vm_flags);
-
-		if (IS_ERR(file2)) {
-			printk(KERN_ERR "Failed to open file %s\n", filename);
-			kfree(buf);
-			return PTR_ERR(file2);
+	if(buf[0]=='0')
+	{
+		printk(KERN_INFO "Saving Process Context\n");
+		task = find_task_by_vpid(pid);
+		if (!task) {
+			printk(KERN_ERR "Process with pid %d not found\n", pid);
+			return -ESRCH;
 		}
 
-		// write the buffer to the file
-		ret=kernel_write(file2, buf, bufsize, &pos);
+		// Get the process's mm_struct
+		mm = get_task_mm(task);
+		if (!mm) {
+			printk(KERN_ERR "Process with pid %d has no mm_struct\n", pid);
+			return -EINVAL;
+		}
 
+		file = filp_open(filename, O_CREAT | O_WRONLY, 0644);
+		if (IS_ERR(file)) {
+			printk(KERN_ERR "Could not open file %s\n", filename);
+			return PTR_ERR(file);
+		}
+
+		// Iterate over the process's VMAs and serialize the data
+		down_read(&mm->mmap_lock);
+		buffer = kmalloc(1024, GFP_KERNEL);
+		file2 = filp_open("aSaved.txt", O_WRONLY|O_APPEND|O_CREAT, 0644);
+		printk(KERN_INFO "mmap lock obtained");
+		for (vma = mm->mmap; vma; vma = vma->vm_next) {
+			// TODO: Extract VMA data and serialize it
+			unsigned long start = vma->vm_start;
+			unsigned long end = vma->vm_end;
+			unsigned long size = end - start;
+			unsigned long flags = vma->vm_flags;
+			char *buf;
+			int bufsize;
+			loff_t pos = 0;
+			ssize_t ret;
+			// Serialize VMA information to buffer
+			memcpy(buffer + count, &start, sizeof(start));
+			count += sizeof(start);
+			memcpy(buffer + count, &end, sizeof(end));
+			count += sizeof(end);
+			memcpy(buffer + count, &size, sizeof(size));
+			count += sizeof(size);
+			memcpy(buffer + count, &flags, sizeof(flags));
+			count += sizeof(flags);
+
+			
+				
+
+			// calculate the buffer size required for serialization
+			bufsize = snprintf(NULL, 0, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
+								vma->vm_start, vma->vm_end, vma->vm_flags);
+
+			// allocate memory for the buffer
+			buf = kmalloc(bufsize + 1, GFP_KERNEL);
+			if (!buf)
+				return -ENOMEM;
+
+			// serialize the VMA data into the buffer
+			snprintf(buf, bufsize + 1, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
+					vma->vm_start, vma->vm_end, vma->vm_flags);
+
+			if (IS_ERR(file2)) {
+				printk(KERN_ERR "Failed to open file %s\n", filename);
+				kfree(buf);
+				return PTR_ERR(file2);
+			}
+
+			// write the buffer to the file
+			ret=kernel_write(file2, buf, bufsize, &pos);
+
+			
+			printk(KERN_INFO "VMA start write success %s\n", buf);
+			if (ret < 0) {
+			printk(KERN_ERR "Failed to write data to file aSaved.txt\n" );
+			kfree(buf);
+			filp_close(file2, NULL);
+			return ret;
+			}
+			kfree(buf);
+			if (count + sizeof(flags) > 1024) {
+				break; // Buffer full, stop serializing VMAs
+			}
+			
+		}
+		up_read(&mm->mmap_lock);
+		printk(KERN_INFO "VMA data saved %s\n", buffer);
+		// Save the serialized data to disk
+		err = 0;
+		//save_serialized_data_to_file(file, serialized_data, serialized_data_len);
+		if (err) {
+			printk(KERN_ERR "Could not save VMA data to file %s\n", filename);
+		}
+
+		if (count > 0) {
+			
+			loff_t pos = 0;
+
+			file = filp_open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
+			if (IS_ERR(file)) {
+				kfree(buffer);
+				mmput(mm);
+				return -EINVAL; // Unable to open file
+			}
 		
-		printk(KERN_INFO "VMA start write success %s\n", buf);
-		if (ret < 0) {
-        printk(KERN_ERR "Failed to write data to file aSaved.txt\n" );
-        kfree(buf);
-        filp_close(file2, NULL);
-        return ret;
-    	}
-		kfree(buf);
-        if (count + sizeof(flags) > 1024) {
-            break; // Buffer full, stop serializing VMAs
-        }
-		
-    }
-    up_read(&mm->mmap_lock);
-	printk(KERN_INFO "VMA data saved %s\n", buffer);
-    // Save the serialized data to disk
-    err = 0;
-	//save_serialized_data_to_file(file, serialized_data, serialized_data_len);
-    if (err) {
-        printk(KERN_ERR "Could not save VMA data to file %s\n", filename);
-    }
 
-	if (count > 0) {
-        
-        loff_t pos = 0;
-
-        file = filp_open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
-        if (IS_ERR(file)) {
-            kfree(buffer);
-            mmput(mm);
-            return -EINVAL; // Unable to open file
-        }
-	
-
-        kernel_write(file, buffer, count, &pos);
+			kernel_write(file, buffer, count, &pos);
 	}
 
     // Cleanup
@@ -2927,6 +2929,10 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
     mmput(mm);
 
 	printk(KERN_INFO "mmcontext syscall ended with \"%s\"\n", buf);
+
+	}
+    // Retrieve the process's task_struct
+    
 	return 0;
 }
 
