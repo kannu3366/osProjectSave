@@ -51,6 +51,7 @@
 Module.symvers
 modules.order
 kernel-dev-archlinux.img
+kernel-dev-archlinux.img:Zone.Identifier
 
 #
 # Top-level generic files
