@@ -62,6 +62,8 @@
 #include <linux/rcupdate.h>
 #include <linux/uidgid.h>
 #include <linux/cred.h>
+#include <linux/sched/signal.h>
+#include <linux/slab.h>
 
 #include <linux/nospec.h>
 
@@ -2799,7 +2801,8 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
     struct mm_struct *mm;
     struct vm_area_struct *vma;
 	struct file *file;
-	//int count=0;
+	int count=0;
+	char *buffer;
     //mm_struct old_fs;
   	long copied = strncpy_from_user(buf, msg, sizeof(buf));
   	if (copied < 0 || copied == sizeof(buf))
@@ -2832,29 +2835,32 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 
     // Iterate over the process's VMAs and serialize the data
     down_read(&mm->mmap_lock);
+	buffer = kmalloc(1024, GFP_KERNEL);
+	printk(KERN_INFO "mmap lock obtained");
     for (vma = mm->mmap; vma; vma = vma->vm_next) {
         // TODO: Extract VMA data and serialize it
-		// unsigned long start = vma->vm_start;
-        // unsigned long end = vma->vm_end;
-        // unsigned long size = end - start;
-        // unsigned long flags = vma->vm_flags;
+		unsigned long start = vma->vm_start;
+        unsigned long end = vma->vm_end;
+        unsigned long size = end - start;
+        unsigned long flags = vma->vm_flags;
+		printk(KERN_INFO "VMA start %ld\n", start);
+        // Serialize VMA information to buffer
+        memcpy(buffer + count, &start, sizeof(start));
+        count += sizeof(start);
+        memcpy(buffer + count, &end, sizeof(end));
+        count += sizeof(end);
+        memcpy(buffer + count, &size, sizeof(size));
+        count += sizeof(size);
+        memcpy(buffer + count, &flags, sizeof(flags));
+        count += sizeof(flags);
 
-        // // Serialize VMA information to buffer
-        // memcpy(buffer + count, &start, sizeof(start));
-        // count += sizeof(start);
-        // memcpy(buffer + count, &end, sizeof(end));
-        // count += sizeof(end);
-        // memcpy(buffer + count, &size, sizeof(size));
-        // count += sizeof(size);
-        // memcpy(buffer + count, &flags, sizeof(flags));
-        // count += sizeof(flags);
-
-        // if (count + sizeof(flags) > VMA_BUFFER_SIZE) {
-        //     break; // Buffer full, stop serializing VMAs
-        // }
+        if (count + sizeof(flags) > 1024) {
+            break; // Buffer full, stop serializing VMAs
+        }
+		
     }
     up_read(&mm->mmap_lock);
-
+	printk(KERN_INFO "VMA data saved %s\n", buffer);
     // Save the serialized data to disk
     err = 0;
 	//save_serialized_data_to_file(file, serialized_data, serialized_data_len);
@@ -2862,18 +2868,20 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
         printk(KERN_ERR "Could not save VMA data to file %s\n", filename);
     }
 
-	// if (count > 0) {
-    //     struct file *file;
-    //     loff_t pos = 0;
+	if (count > 0) {
+        struct file *file;
+        loff_t pos = 0;
 
-    //     file = filp_open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
-    //     if (IS_ERR(file)) {
-    //         kfree(buffer);
-    //         mmput(mm);
-    //         return -EINVAL; // Unable to open file
-    //     }
+        file = filp_open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
+        if (IS_ERR(file)) {
+            kfree(buffer);
+            mmput(mm);
+            return -EINVAL; // Unable to open file
+        }
+	
 
-    //     kernel_write(file, buffer, count, &pos);
+        kernel_write(file, buffer, count, &pos);
+	}
 
     // Cleanup
     filp_close(file, NULL);
