@@ -2794,24 +2794,19 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 {
 	
   	char buf[256];
-	char *filename="aSaved.bin";
-	    int err = 0;
-	
+	char *filename="aSaved.bin";	
     struct task_struct *task;
     struct mm_struct *mm;
     struct vm_area_struct *vma;
 	struct file *file,*file2;
 	int count=0;
 	char *buffer;
-    //mm_struct old_fs;
   	long copied = strncpy_from_user(buf, msg, sizeof(buf));
   	if (copied < 0 || copied == sizeof(buf))
     	return -EFAULT;
 	
 	printk(KERN_INFO "mmcontext syscall called with \"%s\"\n", buf);
 	
-	
-    // mm_segment_t old_fs;
 
 	if(buf[0]=='0')
 	{
@@ -2822,7 +2817,6 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			return -ESRCH;
 		}
 
-		// Get the process's mm_struct
 		mm = get_task_mm(task);
 		if (!mm) {
 			printk(KERN_ERR "Process with pid %d has no mm_struct\n", pid);
@@ -2835,13 +2829,12 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			return PTR_ERR(file);
 		}
 
-		// Iterate over the process's VMAs and serialize the data
 		down_read(&mm->mmap_lock);
 		buffer = kmalloc(1024, GFP_KERNEL);
 		file2 = filp_open("aSaved.txt", O_WRONLY|O_APPEND|O_CREAT, 0644);
 		printk(KERN_INFO "mmap lock obtained");
 		for (vma = mm->mmap; vma; vma = vma->vm_next) {
-			// TODO: Extract VMA data and serialize it
+
 			unsigned long start = vma->vm_start;
 			unsigned long end = vma->vm_end;
 			unsigned long size = end - start;
@@ -2850,7 +2843,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			int bufsize;
 			loff_t pos = 0;
 			ssize_t ret;
-			// Serialize VMA information to buffer
+
 			memcpy(buffer + count, &start, sizeof(start));
 			count += sizeof(start);
 			memcpy(buffer + count, &end, sizeof(end));
@@ -2860,19 +2853,15 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			memcpy(buffer + count, &flags, sizeof(flags));
 			count += sizeof(flags);
 
-			
-				
-
-			// calculate the buffer size required for serialization
 			bufsize = snprintf(NULL, 0, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
 								vma->vm_start, vma->vm_end, vma->vm_flags);
 
-			// allocate memory for the buffer
+
 			buf = kmalloc(bufsize + 1, GFP_KERNEL);
 			if (!buf)
 				return -ENOMEM;
 
-			// serialize the VMA data into the buffer
+
 			snprintf(buf, bufsize + 1, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
 					vma->vm_start, vma->vm_end, vma->vm_flags);
 
@@ -2895,18 +2884,12 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			}
 			kfree(buf);
 			if (count + sizeof(flags) > 1024) {
-				break; // Buffer full, stop serializing VMAs
+				break; // Buffer full
 			}
 			
 		}
 		up_read(&mm->mmap_lock);
 		printk(KERN_INFO "VMA data saved %s\n", buffer);
-		// Save the serialized data to disk
-		err = 0;
-		//save_serialized_data_to_file(file, serialized_data, serialized_data_len);
-		if (err) {
-			printk(KERN_ERR "Could not save VMA data to file %s\n", filename);
-		}
 
 		if (count > 0) {
 			
@@ -2916,14 +2899,13 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			if (IS_ERR(file)) {
 				kfree(buffer);
 				mmput(mm);
-				return -EINVAL; // Unable to open file
+				return -EINVAL;
 			}
 		
 
 			kernel_write(file, buffer, count, &pos);
 	}
 
-    // Cleanup
 	filp_close(file2, NULL);
     filp_close(file, NULL);
     mmput(mm);
@@ -2931,7 +2913,6 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 	printk(KERN_INFO "mmcontext syscall ended with \"%s\"\n", buf);
 
 	}
-    // Retrieve the process's task_struct
     
 	return 0;
 }
