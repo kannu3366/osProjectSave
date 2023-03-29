@@ -2794,13 +2794,13 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 {
 	
   	char buf[256];
-	char *filename="aSaved.txt";
+	char *filename="aSaved.bin";
 	    int err = 0;
 	
     struct task_struct *task;
     struct mm_struct *mm;
     struct vm_area_struct *vma;
-	struct file *file;
+	struct file *file,*file2;
 	int count=0;
 	char *buffer;
     //mm_struct old_fs;
@@ -2836,6 +2836,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
     // Iterate over the process's VMAs and serialize the data
     down_read(&mm->mmap_lock);
 	buffer = kmalloc(1024, GFP_KERNEL);
+	file2 = filp_open("aSaved.txt", O_WRONLY|O_APPEND|O_CREAT, 0644);
 	printk(KERN_INFO "mmap lock obtained");
     for (vma = mm->mmap; vma; vma = vma->vm_next) {
         // TODO: Extract VMA data and serialize it
@@ -2843,7 +2844,10 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
         unsigned long end = vma->vm_end;
         unsigned long size = end - start;
         unsigned long flags = vma->vm_flags;
-		printk(KERN_INFO "VMA start %ld\n", start);
+		char *buf;
+    	int bufsize;
+		loff_t pos = 0;
+		ssize_t ret;
         // Serialize VMA information to buffer
         memcpy(buffer + count, &start, sizeof(start));
         count += sizeof(start);
@@ -2854,6 +2858,40 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
         memcpy(buffer + count, &flags, sizeof(flags));
         count += sizeof(flags);
 
+		
+			
+
+		// calculate the buffer size required for serialization
+		bufsize = snprintf(NULL, 0, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
+							vma->vm_start, vma->vm_end, vma->vm_flags);
+
+		// allocate memory for the buffer
+		buf = kmalloc(bufsize + 1, GFP_KERNEL);
+		if (!buf)
+			return -ENOMEM;
+
+		// serialize the VMA data into the buffer
+		snprintf(buf, bufsize + 1, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
+				vma->vm_start, vma->vm_end, vma->vm_flags);
+
+		if (IS_ERR(file2)) {
+			printk(KERN_ERR "Failed to open file %s\n", filename);
+			kfree(buf);
+			return PTR_ERR(file2);
+		}
+
+		// write the buffer to the file
+		ret=kernel_write(file2, buf, bufsize, &pos);
+
+		
+		printk(KERN_INFO "VMA start write success %s\n", buf);
+		if (ret < 0) {
+        printk(KERN_ERR "Failed to write data to file aSaved.txt\n" );
+        kfree(buf);
+        filp_close(file2, NULL);
+        return ret;
+    	}
+		kfree(buf);
         if (count + sizeof(flags) > 1024) {
             break; // Buffer full, stop serializing VMAs
         }
@@ -2869,7 +2907,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
     }
 
 	if (count > 0) {
-        struct file *file;
+        
         loff_t pos = 0;
 
         file = filp_open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
@@ -2884,6 +2922,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 	}
 
     // Cleanup
+	filp_close(file2, NULL);
     filp_close(file, NULL);
     mmput(mm);
 
