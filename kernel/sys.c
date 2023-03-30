@@ -2799,8 +2799,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
     struct mm_struct *mm;
     struct vm_area_struct *vma;
 	struct file *file,*file2;
-	int count=0;
-	char *buffer;
+	long long int count=0;
   	long copied = strncpy_from_user(buf, msg, sizeof(buf));
   	if (copied < 0 || copied == sizeof(buf))
     	return -EFAULT;
@@ -2856,7 +2855,6 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 		filp_close(f, NULL);
 
 		down_read(&mm->mmap_lock);
-		buffer = kmalloc(1024, GFP_KERNEL);
 		file2 = filp_open("aSaved.txt", O_WRONLY|O_APPEND|O_CREAT, 0644);
 		printk(KERN_INFO "mmap lock obtained");
 		for (vma = mm->mmap; vma; vma = vma->vm_next) {
@@ -2870,14 +2868,30 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			loff_t pos = 0;
 			ssize_t ret;
 
-			memcpy(buffer + count, &start, sizeof(start));
-			count += sizeof(start);
-			memcpy(buffer + count, &end, sizeof(end));
-			count += sizeof(end);
-			memcpy(buffer + count, &size, sizeof(size));
-			count += sizeof(size);
-			memcpy(buffer + count, &flags, sizeof(flags));
-			count += sizeof(flags);
+			char *buffer = kmalloc(size, GFP_KERNEL);
+			if (!buffer) {
+    			printk(KERN_ERR "Failed to allocate memory for VMA data\n");
+    			return -ENOMEM;
+			}
+			printk(KERN_INFO "Before Memcopy\n");
+			if (copy_from_user(buffer, (void *)start, size)) {
+				printk(KERN_ERR "Failed to copy VMA data to buffer\n");
+				kfree(buf);
+				continue;
+			}
+			printk(KERN_INFO "After Memcopy\n");
+			file = filp_open(filename, O_WRONLY|O_APPEND|O_CREAT, 0644);
+			if (IS_ERR(file)) {
+				kfree(buffer);
+				mmput(mm);
+				printk(KERN_ERR "Failed to open file %s\n", filename);
+				return -EINVAL;
+			}
+		
+			printk(KERN_INFO "VMA total write start buffer = %s\n", buffer);
+			kernel_write(file, buffer, size, &pos);
+			kfree(buffer);
+			printk(KERN_INFO "VMA total write success\n");
 
 			bufsize = snprintf(NULL, 0, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
 								vma->vm_start, vma->vm_end, vma->vm_flags);
@@ -2892,7 +2906,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 					vma->vm_start, vma->vm_end, vma->vm_flags);
 
 			if (IS_ERR(file2)) {
-				printk(KERN_ERR "Failed to open file %s\n", filename);
+				printk(KERN_ERR "Failed to open file aSaved.txt");
 				kfree(buf);
 				return PTR_ERR(file2);
 			}
@@ -2915,22 +2929,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			
 		}
 		up_read(&mm->mmap_lock);
-		printk(KERN_INFO "VMA data saved %s\n", buffer);
-
-		if (count > 0) {
-			
-			loff_t pos = 0;
-
-			file = filp_open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
-			if (IS_ERR(file)) {
-				kfree(buffer);
-				mmput(mm);
-				return -EINVAL;
-			}
-		
-
-			kernel_write(file, buffer, count, &pos);
-	}
+		printk(KERN_INFO "VMA data saved");
 
 	filp_close(file2, NULL);
     filp_close(file, NULL);
