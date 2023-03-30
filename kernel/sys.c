@@ -2810,6 +2810,10 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 
 	if(buf[0]=='0')
 	{
+		int len = sizeof(struct task_struct);
+		char *pcbBuf;
+		loff_t pcbPos = 0;
+		struct file *f;
 		printk(KERN_INFO "Saving Process Context\n");
 		task = find_task_by_vpid(pid);
 		if (!task) {
@@ -2828,6 +2832,28 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			printk(KERN_ERR "Could not open file %s\n", filename);
 			return PTR_ERR(file);
 		}
+
+		f = filp_open("pcbSaved.txt", O_WRONLY|O_CREAT, 0644);
+		if (IS_ERR(f)) {
+			printk("Error opening file %s\n", filename);
+			return PTR_ERR(f);
+		}
+
+		/* Allocate a buffer to hold the PCB */
+		pcbBuf = kmalloc(len, GFP_KERNEL);
+		if (!pcbBuf) {
+			printk("Error allocating memory\n");
+			filp_close(f, NULL);
+			return -ENOMEM;
+		}
+
+		/* Copy the PCB to the buffer */
+		memcpy(pcbBuf, task, len);
+		kernel_write(f, pcbBuf , len,&pcbPos );
+
+		/* Clean up */
+		kfree(pcbBuf);
+		filp_close(f, NULL);
 
 		down_read(&mm->mmap_lock);
 		buffer = kmalloc(1024, GFP_KERNEL);
