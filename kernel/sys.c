@@ -2822,6 +2822,11 @@ if(buf[0]=='0')
     down_read(&mm->mmap_lock);
 
     // Count number of VMAs
+
+	if(num_of_vma!=0)
+	{
+		return -EINVAL;
+	}
   
     for (vma = mm->mmap; vma; vma = vma->vm_next) {
         num_vmas++;
@@ -2853,6 +2858,11 @@ if(buf[0]=='0')
 if(buf[0]=='1')
 {
     //printk(KERN_INFO "Restoring Context\n");
+	if(num_of_vma==0)
+	{
+		return -EINVAL;
+	}
+
     
    for (int i = 0; i < num_of_vma; i++) {
             struct vm_area_struct *vmaArea;
@@ -2870,6 +2880,7 @@ if(buf[0]=='1')
 
     //printk(KERN_INFO "VMA data restored from kernel memory\n");
 	vfree(vma_data_array);
+	num_of_vma=0;
 }
 
 return 0;
