@@ -2790,7 +2790,13 @@ COMPAT_SYSCALL_DEFINE1(sysinfo, struct compat_sysinfo __user *, info)
 	return 0;
 }
 
-SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
+struct vma_data {
+    unsigned long start;
+    unsigned long end;
+    unsigned long flags;
+};
+
+SYSCALL_DEFINE1(mmcontext, char *, msg)
 {
 	
   	char buf[256];
@@ -2798,12 +2804,16 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
     struct task_struct *task;
     struct mm_struct *mm;
     struct vm_area_struct *vma;
-	struct file *file,*file2;
+	struct file *file,*file2,*saveVmaFile;
 	int count=0;
 	char *buffer;
   	long copied = strncpy_from_user(buf, msg, sizeof(buf));
   	if (copied < 0 || copied == sizeof(buf))
-    	return -EFAULT;
+    {
+		printk(KERN_INFO "Invalid Argument \n");
+		return -EFAULT;
+	}	
+		
 	
 	printk(KERN_INFO "mmcontext syscall called with \"%s\"\n", buf);
 	
@@ -2813,17 +2823,18 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 		int len = sizeof(struct task_struct);
 		char *pcbBuf;
 		loff_t pcbPos = 0;
+		loff_t pos;
 		struct file *f;
 		printk(KERN_INFO "Saving Process Context\n");
-		task = find_task_by_vpid(pid);
+		task = current;
 		if (!task) {
-			printk(KERN_ERR "Process with pid %d not found\n", pid);
+			printk(KERN_ERR "Process not found\n");
 			return -ESRCH;
 		}
 
 		mm = get_task_mm(task);
 		if (!mm) {
-			printk(KERN_ERR "Process with pid %d has no mm_struct\n", pid);
+			printk(KERN_ERR "Process has no mm_struct\n");
 			return -EINVAL;
 		}
 
@@ -2858,7 +2869,10 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 		down_read(&mm->mmap_lock);
 		buffer = kmalloc(1024, GFP_KERNEL);
 		file2 = filp_open("aSaved.txt", O_WRONLY|O_APPEND|O_CREAT, 0644);
+		saveVmaFile=filp_open("aSaveVma.bin", O_WRONLY|O_APPEND|O_CREAT, 0644);
 		printk(KERN_INFO "mmap lock obtained");
+		pos=0;
+		
 		for (vma = mm->mmap; vma; vma = vma->vm_next) {
 
 			unsigned long start = vma->vm_start;
@@ -2867,8 +2881,22 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			unsigned long flags = vma->vm_flags;
 			char *buf;
 			int bufsize;
-			loff_t pos = 0;
+			
 			ssize_t ret;
+			struct vma_data vma_data;
+			vma_data.start = vma->vm_start;
+			vma_data.end = vma->vm_end;
+			vma_data.flags = vma->vm_flags;
+
+			ret = kernel_write(saveVmaFile, &vma_data, sizeof(struct vma_data), &pos);
+			if (ret < 0) {
+			printk(KERN_ERR "Failed to write VMA struct data to file aSaveVma.bin\n" );
+			return ret;
+			}
+			else{
+			
+				printk(KERN_INFO "Successful write of VMA struct data to file aSaveVma.bin\n" );
+			}
 
 			memcpy(buffer + count, &start, sizeof(start));
 			count += sizeof(start);
@@ -2912,7 +2940,7 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			if (count + sizeof(flags) > 1024) {
 				break; // Buffer full
 			}
-			
+			pos += sizeof(struct vma_data);
 		}
 		up_read(&mm->mmap_lock);
 		printk(KERN_INFO "VMA data saved %s\n", buffer);
@@ -2929,8 +2957,9 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 			}
 		
 
-			kernel_write(file, buffer, count, &pos);
-	}
+			kernel_write(file, buffer, count,&pos);
+			
+		}
 
 	filp_close(file2, NULL);
     filp_close(file, NULL);
@@ -2938,6 +2967,41 @@ SYSCALL_DEFINE2(mmcontext, char *, msg ,int, pid)
 
 	printk(KERN_INFO "mmcontext syscall ended with \"%s\"\n", buf);
 
+	}
+
+	else if(buf[0]=='1')
+	{
+		struct vma_data *vma_data;
+		//ssize_t ret;
+		
+		struct file *saveVmaFile;
+		//loff_t pos = 0;
+		int bytes_read;
+		struct rb_root_cached *mm_rb;
+		loff_t pos = 0; 
+		printk(KERN_INFO "Restoring Context\n");
+		mm_rb = (struct rb_root_cached *)&current->mm->mm_rb;
+		printk(KERN_INFO "rb_root_cached conversion successful\n");
+		saveVmaFile=filp_open("aSaveVma.bin", O_RDONLY, 0);
+		vma_data = kmalloc(sizeof(struct vma_data), GFP_KERNEL);
+
+		while ((bytes_read = kernel_read(saveVmaFile, vma_data, sizeof(struct vma_data), &pos)) > 0) {
+			struct vm_area_struct *vmaArea;
+			if (bytes_read != sizeof(struct vma_data)) {
+				printk(KERN_ERR "Error reading vma_data structure from file\n");
+				return 0;
+			}
+			printk(KERN_INFO "Reading context saved file\n");
+			vmaArea = vm_area_alloc(current->mm);
+			vmaArea->vm_start = vma_data->start;
+			vmaArea->vm_end = vma_data->end;
+			vmaArea->vm_flags = vma_data->flags;
+			printk(KERN_INFO "New VMA Area created\n");
+			vma_interval_tree_insert(vmaArea,mm_rb);
+			printk(KERN_INFO "New VMA Area inserted into VMA Tree\n");
+			pos += sizeof(struct vma_data);
+			printk(KERN_INFO "File Read position advancing\n");
+    	}
 	}
     
 	return 0;
