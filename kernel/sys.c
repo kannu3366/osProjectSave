@@ -2857,10 +2857,14 @@ if(buf[0]=='1')
    for (int i = 0; i < num_of_vma; i++) {
             struct vm_area_struct *vmaArea;
             vmaArea = vm_area_alloc(current->mm);
+			if (!vmaArea) {
+                return -ENOMEM;
+        	}
             vmaArea->vm_start = vma_data_array[i].start;
             vmaArea->vm_end = vma_data_array[i].end;
             vmaArea->vm_flags = vma_data_array[i].flags;
 			insert_vm_struct(current->mm, vmaArea);
+			vm_area_free(vmaArea);
             //printk(KERN_INFO "New VMA Area inserted into VMA Tree\n");
         }
 
