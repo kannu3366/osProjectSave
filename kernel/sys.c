@@ -2801,17 +2801,17 @@ struct vma_data *vma_data_array = NULL;
 
 SYSCALL_DEFINE1(mmcontext, char *, msg)
 {
-char buf[256];	
+char buf[2];	
 struct task_struct *task;
 struct mm_struct *mm;
 struct vm_area_struct *vma;
 long copied = strncpy_from_user(buf, msg, sizeof(buf));
 if (copied < 0 || copied == sizeof(buf))
 {
-    printk(KERN_INFO "Invalid Argument \n");
+    //printk(KERN_INFO "Invalid Argument \n");
     return -EFAULT;
 }	
-printk(KERN_INFO "mmcontext syscall called with \"%s\"\n", buf);
+//printk(KERN_INFO "mmcontext syscall called with \"%s\"\n", buf);
 
 if(buf[0]=='0')
 {
@@ -2828,9 +2828,9 @@ if(buf[0]=='0')
     }
 
     // Allocate memory to store VMA data
-    vma_data_array = kmalloc(num_vmas * sizeof(struct vma_data), GFP_KERNEL);
+    vma_data_array = vmalloc(num_vmas * sizeof(struct vma_data));
     if (!vma_data_array) {
-        printk(KERN_ERR "Failed to allocate memory for VMA data\n");
+        //printk(KERN_ERR "Failed to allocate memory for VMA data\n");
         up_read(&mm->mmap_lock);
         mmput(mm);
         return -ENOMEM;
@@ -2848,36 +2848,25 @@ if(buf[0]=='0')
     up_read(&mm->mmap_lock);
     mmput(mm);
 	num_of_vma=num_vmas;
-    printk(KERN_INFO "VMA data stored in kernel memory\n");
+    //printk(KERN_INFO "VMA data stored in kernel memory\n");
 }
 if(buf[0]=='1')
 {
-    struct rb_root_cached *mm_rb;
-	int i = 0;
-    printk(KERN_INFO "Restoring Context\n");
-    mm_rb = (struct rb_root_cached *)&current->mm->mm_rb;
-    printk(KERN_INFO "rb_root_cached conversion successful\n");
-
-    // Copy VMA data back into VMAs
+    //printk(KERN_INFO "Restoring Context\n");
     
-   for (i = 0; i < num_of_vma; i++) {
+   for (int i = 0; i < num_of_vma; i++) {
             struct vm_area_struct *vmaArea;
             vmaArea = vm_area_alloc(current->mm);
             vmaArea->vm_start = vma_data_array[i].start;
             vmaArea->vm_end = vma_data_array[i].end;
             vmaArea->vm_flags = vma_data_array[i].flags;
-            printk(KERN_INFO "New VMA Area created\n");
-            vma_interval_tree_insert(vmaArea, mm_rb);
-            printk(KERN_INFO "New VMA Area inserted into VMA Tree\n");
+			insert_vm_struct(current->mm, vmaArea);
+            //printk(KERN_INFO "New VMA Area inserted into VMA Tree\n");
         }
 
-    printk(KERN_INFO "VMA data restored from kernel memory\n");
-	kfree(vma_data_array);
+    //printk(KERN_INFO "VMA data restored from kernel memory\n");
+	vfree(vma_data_array);
 }
-
-
-// Free memory allocated for vma_data_array
-
 
 return 0;
 }
