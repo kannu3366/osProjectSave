@@ -2796,98 +2796,90 @@ struct vma_data {
     unsigned long flags;
 };
 
+int num_of_vma=0;
+struct vma_data *vma_data_array = NULL; 
+
 SYSCALL_DEFINE1(mmcontext, char *, msg)
 {
-	
-  	char buf[256];	
-    struct task_struct *task;
-    struct mm_struct *mm;
-    struct vm_area_struct *vma;
-	struct file *saveVmaFile;
-  	long copied = strncpy_from_user(buf, msg, sizeof(buf));
-  	if (copied < 0 || copied == sizeof(buf))
-    {
-		printk(KERN_INFO "Invalid Argument \n");
-		return -EFAULT;
-	}	
-		
-	
-	printk(KERN_INFO "mmcontext syscall called with \"%s\"\n", buf);
-	
+char buf[256];	
+struct task_struct *task;
+struct mm_struct *mm;
+struct vm_area_struct *vma;
+long copied = strncpy_from_user(buf, msg, sizeof(buf));
+if (copied < 0 || copied == sizeof(buf))
+{
+    printk(KERN_INFO "Invalid Argument \n");
+    return -EFAULT;
+}	
+printk(KERN_INFO "mmcontext syscall called with \"%s\"\n", buf);
 
-	if(buf[0]=='0')
-	{
-		loff_t pos;
-		task = current;
+if(buf[0]=='0')
+{
+	int i = 0;
+	int num_vmas = 0;
+    task = current;
+    mm = get_task_mm(task);
+    down_read(&mm->mmap_lock);
 
-		mm = get_task_mm(task);
+    // Count number of VMAs
+  
+    for (vma = mm->mmap; vma; vma = vma->vm_next) {
+        num_vmas++;
+    }
 
-		down_read(&mm->mmap_lock);
-		saveVmaFile=filp_open("aSaveVma.bin", O_WRONLY|O_APPEND|O_CREAT, 0644);
-		printk(KERN_INFO "mmap lock obtained");
-		pos=0;
-		
-		for (vma = mm->mmap; vma; vma = vma->vm_next) {
-			
-			ssize_t ret;
-			struct vma_data vma_data;
-			vma_data.start = vma->vm_start;
-			vma_data.end = vma->vm_end;
-			vma_data.flags = vma->vm_flags;
+    // Allocate memory to store VMA data
+    vma_data_array = kmalloc(num_vmas * sizeof(struct vma_data), GFP_KERNEL);
+    if (!vma_data_array) {
+        printk(KERN_ERR "Failed to allocate memory for VMA data\n");
+        up_read(&mm->mmap_lock);
+        mmput(mm);
+        return -ENOMEM;
+    }
 
-			ret = kernel_write(saveVmaFile, &vma_data, sizeof(struct vma_data), &pos);
-			if (ret < 0) {
-			printk(KERN_ERR "Failed to write VMA struct data to file aSaveVma.bin\n" );
-			return ret;
-			}
-			else{
-			
-				printk(KERN_INFO "Successful write of VMA struct data to file aSaveVma.bin\n" );
-			}
-
-			pos += sizeof(struct vma_data);
-		}
-		up_read(&mm->mmap_lock);
-		filp_close(saveVmaFile, NULL);
-		mmput(mm);
-
-		printk(KERN_INFO "mmcontext syscall ended with \"%s\"\n", buf);
-
-	}
-
-	else if(buf[0]=='1')
-	{
-		struct vma_data *vma_data;
-		struct file *saveVmaFile;
-		int bytes_read;
-		struct rb_root_cached *mm_rb;
-		loff_t pos = 0; 
-		printk(KERN_INFO "Restoring Context\n");
-		mm_rb = (struct rb_root_cached *)&current->mm->mm_rb;
-		printk(KERN_INFO "rb_root_cached conversion successful\n");
-		saveVmaFile=filp_open("aSaveVma.bin", O_RDONLY, 0);
-		vma_data = kmalloc(sizeof(struct vma_data), GFP_KERNEL);
-
-		while ((bytes_read = kernel_read(saveVmaFile, vma_data, sizeof(struct vma_data), &pos)) > 0) {
-			struct vm_area_struct *vmaArea;
-			if (bytes_read != sizeof(struct vma_data)) {
-				printk(KERN_ERR "Error reading vma_data structure from file\n");
-				return 0;
-			}
-			printk(KERN_INFO "Reading context saved file\n");
-			vmaArea = vm_area_alloc(current->mm);
-			vmaArea->vm_start = vma_data->start;
-			vmaArea->vm_end = vma_data->end;
-			vmaArea->vm_flags = vma_data->flags;
-			printk(KERN_INFO "New VMA Area created\n");
-			vma_interval_tree_insert(vmaArea,mm_rb);
-			printk(KERN_INFO "New VMA Area inserted into VMA Tree\n");
-			pos += sizeof(struct vma_data);
-			printk(KERN_INFO "File Read position advancing\n");
-    	}
-	}
+    // Copy VMA data into buffer
     
-	return 0;
+    for (vma = mm->mmap; vma; vma = vma->vm_next) {
+        vma_data_array[i].start = vma->vm_start;
+        vma_data_array[i].end = vma->vm_end;
+        vma_data_array[i].flags = vma->vm_flags;
+        i++;
+    }
+
+    up_read(&mm->mmap_lock);
+    mmput(mm);
+	num_of_vma=num_vmas;
+    printk(KERN_INFO "VMA data stored in kernel memory\n");
+}
+if(buf[0]=='1')
+{
+    struct rb_root_cached *mm_rb;
+	int i = 0;
+    printk(KERN_INFO "Restoring Context\n");
+    mm_rb = (struct rb_root_cached *)&current->mm->mm_rb;
+    printk(KERN_INFO "rb_root_cached conversion successful\n");
+
+    // Copy VMA data back into VMAs
+    
+   for (i = 0; i < num_of_vma; i++) {
+            struct vm_area_struct *vmaArea;
+            vmaArea = vm_area_alloc(current->mm);
+            vmaArea->vm_start = vma_data_array[i].start;
+            vmaArea->vm_end = vma_data_array[i].end;
+            vmaArea->vm_flags = vma_data_array[i].flags;
+            printk(KERN_INFO "New VMA Area created\n");
+            vma_interval_tree_insert(vmaArea, mm_rb);
+            printk(KERN_INFO "New VMA Area inserted into VMA Tree\n");
+        }
+
+    printk(KERN_INFO "VMA data restored from kernel memory\n");
+	kfree(vma_data_array);
+}
+
+
+// Free memory allocated for vma_data_array
+
+
+return 0;
 }
 
 
