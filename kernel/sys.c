@@ -2799,14 +2799,11 @@ struct vma_data {
 SYSCALL_DEFINE1(mmcontext, char *, msg)
 {
 	
-  	char buf[256];
-	char *filename="aSaved.bin";	
+  	char buf[256];	
     struct task_struct *task;
     struct mm_struct *mm;
     struct vm_area_struct *vma;
-	struct file *file,*file2,*saveVmaFile;
-	int count=0;
-	char *buffer;
+	struct file *saveVmaFile;
   	long copied = strncpy_from_user(buf, msg, sizeof(buf));
   	if (copied < 0 || copied == sizeof(buf))
     {
@@ -2820,67 +2817,17 @@ SYSCALL_DEFINE1(mmcontext, char *, msg)
 
 	if(buf[0]=='0')
 	{
-		int len = sizeof(struct task_struct);
-		char *pcbBuf;
-		loff_t pcbPos = 0;
 		loff_t pos;
-		struct file *f;
-		printk(KERN_INFO "Saving Process Context\n");
 		task = current;
-		if (!task) {
-			printk(KERN_ERR "Process not found\n");
-			return -ESRCH;
-		}
 
 		mm = get_task_mm(task);
-		if (!mm) {
-			printk(KERN_ERR "Process has no mm_struct\n");
-			return -EINVAL;
-		}
-
-		file = filp_open(filename, O_CREAT | O_WRONLY, 0644);
-		if (IS_ERR(file)) {
-			printk(KERN_ERR "Could not open file %s\n", filename);
-			return PTR_ERR(file);
-		}
-
-		f = filp_open("pcbSaved.txt", O_WRONLY|O_CREAT, 0644);
-		if (IS_ERR(f)) {
-			printk("Error opening file %s\n", filename);
-			return PTR_ERR(f);
-		}
-
-		/* Allocate a buffer to hold the PCB */
-		pcbBuf = kmalloc(len, GFP_KERNEL);
-		if (!pcbBuf) {
-			printk("Error allocating memory\n");
-			filp_close(f, NULL);
-			return -ENOMEM;
-		}
-
-		/* Copy the PCB to the buffer */
-		memcpy(pcbBuf, task, len);
-		kernel_write(f, pcbBuf , len,&pcbPos );
-
-		/* Clean up */
-		kfree(pcbBuf);
-		filp_close(f, NULL);
 
 		down_read(&mm->mmap_lock);
-		buffer = kmalloc(1024, GFP_KERNEL);
-		file2 = filp_open("aSaved.txt", O_WRONLY|O_APPEND|O_CREAT, 0644);
 		saveVmaFile=filp_open("aSaveVma.bin", O_WRONLY|O_APPEND|O_CREAT, 0644);
 		printk(KERN_INFO "mmap lock obtained");
 		pos=0;
 		
 		for (vma = mm->mmap; vma; vma = vma->vm_next) {
-
-			unsigned long start = vma->vm_start;
-			unsigned long end = vma->vm_end;
-			unsigned long size = end - start;
-			unsigned long flags = vma->vm_flags;
-			char *buf;
-			int bufsize;
 			
 			ssize_t ret;
 			struct vma_data vma_data;
@@ -2898,84 +2845,20 @@ SYSCALL_DEFINE1(mmcontext, char *, msg)
 				printk(KERN_INFO "Successful write of VMA struct data to file aSaveVma.bin\n" );
 			}
 
-			memcpy(buffer + count, &start, sizeof(start));
-			count += sizeof(start);
-			memcpy(buffer + count, &end, sizeof(end));
-			count += sizeof(end);
-			memcpy(buffer + count, &size, sizeof(size));
-			count += sizeof(size);
-			memcpy(buffer + count, &flags, sizeof(flags));
-			count += sizeof(flags);
-
-			bufsize = snprintf(NULL, 0, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
-								vma->vm_start, vma->vm_end, vma->vm_flags);
-
-
-			buf = kmalloc(bufsize + 1, GFP_KERNEL);
-			if (!buf)
-				return -ENOMEM;
-
-
-			snprintf(buf, bufsize + 1, "vma_start=%ld, vma_end=%ld, prot=%lx\n",
-					vma->vm_start, vma->vm_end, vma->vm_flags);
-
-			if (IS_ERR(file2)) {
-				printk(KERN_ERR "Failed to open file %s\n", filename);
-				kfree(buf);
-				return PTR_ERR(file2);
-			}
-
-			// write the buffer to the file
-			ret=kernel_write(file2, buf, bufsize, &pos);
-
-			
-			printk(KERN_INFO "VMA start write success %s\n", buf);
-			if (ret < 0) {
-			printk(KERN_ERR "Failed to write data to file aSaved.txt\n" );
-			kfree(buf);
-			filp_close(file2, NULL);
-			return ret;
-			}
-			kfree(buf);
-			if (count + sizeof(flags) > 1024) {
-				break; // Buffer full
-			}
 			pos += sizeof(struct vma_data);
 		}
 		up_read(&mm->mmap_lock);
-		printk(KERN_INFO "VMA data saved %s\n", buffer);
+		filp_close(saveVmaFile, NULL);
+		mmput(mm);
 
-		if (count > 0) {
-			
-			loff_t pos = 0;
-
-			file = filp_open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
-			if (IS_ERR(file)) {
-				kfree(buffer);
-				mmput(mm);
-				return -EINVAL;
-			}
-		
-
-			kernel_write(file, buffer, count,&pos);
-			
-		}
-
-	filp_close(file2, NULL);
-    filp_close(file, NULL);
-    mmput(mm);
-
-	printk(KERN_INFO "mmcontext syscall ended with \"%s\"\n", buf);
+		printk(KERN_INFO "mmcontext syscall ended with \"%s\"\n", buf);
 
 	}
 
 	else if(buf[0]=='1')
 	{
 		struct vma_data *vma_data;
-		//ssize_t ret;
-		
 		struct file *saveVmaFile;
-		//loff_t pos = 0;
 		int bytes_read;
 		struct rb_root_cached *mm_rb;
 		loff_t pos = 0; 
